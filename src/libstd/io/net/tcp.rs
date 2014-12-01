@@ -25,6 +25,7 @@ use io::{Reader, Writer, Listener, Acceptor};
 use io::{standard_error, TimedOut};
 use option::{None, Some, Option};
 use time::Duration;
+use prelude::Ok;
 
 use sys::tcp::TcpStream as TcpStreamImp;
 use sys::tcp::TcpListener as TcpListenerImp;
@@ -32,18 +33,24 @@ use sys::tcp::TcpAcceptor as TcpAcceptorImp;
 
 use sys_common;
 
-/// A structure which represents a TCP stream between a local socket and a
-/// remote socket.
+/// phantom
+pub struct Readable;
+/// phantom
+pub struct Writable;
+
+/// A structure which represents a TCP stream between a local socket
+/// and a remote socket. This structure is not to be used directly;
+/// see TcpDuplex, TcpReader, and TcpWriter.
 ///
 /// The socket will be closed when the value is dropped.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use std::io::TcpStream;
+/// use std::io::tcp_connect;
 ///
 /// {
-///     let mut stream = TcpStream::connect("127.0.0.1:34254");
+///     let mut stream = tcp_connect("127.0.0.1:34254");
 ///
 ///     // ignore the Result
 ///     let _ = stream.write(&[1]);
@@ -52,49 +59,54 @@ use sys_common;
 ///     let _ = stream.read(&mut buf); // ignore here too
 /// } // the stream is closed here
 /// ```
-pub struct TcpStream {
+pub struct TcpStream<R,W> {
     inner: TcpStreamImp,
 }
 
-impl TcpStream {
-    fn new(s: TcpStreamImp) -> TcpStream {
+/// A TcpStream
+pub type TcpDuplex = TcpStream<Readable,Writable>;
+pub type TcpReader = TcpStream<Readable,()>;
+pub type TcpWriter = TcpStream<(),Writable>;
+
+/// Open a TCP connection to a remote host.
+///
+/// `addr` is an address of the remote host. Anything which implements `ToSocketAddr`
+/// trait can be supplied for the address; see this trait documentation for
+/// concrete examples.
+pub fn tcp_connect<A: ToSocketAddr>(addr: A) -> IoResult<TcpDuplex> {
+    super::with_addresses(addr, |addr| {
+        TcpStreamImp::connect(addr, None).map(TcpStream::<Readable,Writable>::new)
+    })
+}
+
+/// Creates a TCP connection to a remote socket address, timing out after
+/// the specified duration.
+///
+/// This is the same as the `connect` method, except that if the timeout
+/// specified elapses before a connection is made an error will be
+/// returned. The error's kind will be `TimedOut`.
+///
+/// Same as the `connect` method, `addr` argument type can be anything which
+/// implements `ToSocketAddr` trait.
+///
+/// If a `timeout` with zero or negative duration is specified then
+/// the function returns `Err`, with the error kind set to `TimedOut`.
+#[experimental = "the timeout argument may eventually change types"]
+pub fn tcp_connect_timeout<A: ToSocketAddr>(addr: A,
+                                        timeout: Duration) -> IoResult<TcpDuplex> {
+    if timeout <= Duration::milliseconds(0) {
+        return Err(standard_error(TimedOut));
+    }
+
+    super::with_addresses(addr, |addr| {
+        TcpStreamImp::connect(addr, Some(timeout.num_milliseconds() as u64))
+            .map(TcpStream::<Readable,Writable>::new)
+    })
+}
+
+impl<R,W> TcpStream<R,W> {
+    fn new(s: TcpStreamImp) -> TcpStream<R,W> {
         TcpStream { inner: s }
-    }
-
-    /// Open a TCP connection to a remote host.
-    ///
-    /// `addr` is an address of the remote host. Anything which implements `ToSocketAddr`
-    /// trait can be supplied for the address; see this trait documentation for
-    /// concrete examples.
-    pub fn connect<A: ToSocketAddr>(addr: A) -> IoResult<TcpStream> {
-        super::with_addresses(addr, |addr| {
-            TcpStreamImp::connect(addr, None).map(TcpStream::new)
-        })
-    }
-
-    /// Creates a TCP connection to a remote socket address, timing out after
-    /// the specified duration.
-    ///
-    /// This is the same as the `connect` method, except that if the timeout
-    /// specified elapses before a connection is made an error will be
-    /// returned. The error's kind will be `TimedOut`.
-    ///
-    /// Same as the `connect` method, `addr` argument type can be anything which
-    /// implements `ToSocketAddr` trait.
-    ///
-    /// If a `timeout` with zero or negative duration is specified then
-    /// the function returns `Err`, with the error kind set to `TimedOut`.
-    #[experimental = "the timeout argument may eventually change types"]
-    pub fn connect_timeout<A: ToSocketAddr>(addr: A,
-                                            timeout: Duration) -> IoResult<TcpStream> {
-        if timeout <= Duration::milliseconds(0) {
-            return Err(standard_error(TimedOut));
-        }
-
-        super::with_addresses(addr, |addr| {
-            TcpStreamImp::connect(addr, Some(timeout.num_milliseconds() as u64))
-                .map(TcpStream::new)
-        })
     }
 
     /// Returns the socket address of the remote peer of this TCP connection.
@@ -123,51 +135,6 @@ impl TcpStream {
         self.inner.set_keepalive(delay_in_seconds)
     }
 
-    /// Closes the reading half of this connection.
-    ///
-    /// This method will close the reading portion of this connection, causing
-    /// all pending and future reads to immediately return with an error.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # #![allow(unused_must_use)]
-    /// use std::io::timer;
-    /// use std::io::TcpStream;
-    /// use std::time::Duration;
-    ///
-    /// let mut stream = TcpStream::connect("127.0.0.1:34254").unwrap();
-    /// let stream2 = stream.clone();
-    ///
-    /// spawn(proc() {
-    ///     // close this stream after one second
-    ///     timer::sleep(Duration::seconds(1));
-    ///     let mut stream = stream2;
-    ///     stream.close_read();
-    /// });
-    ///
-    /// // wait for some data, will get canceled after one second
-    /// let mut buf = [0];
-    /// stream.read(&mut buf);
-    /// ```
-    ///
-    /// Note that this method affects all cloned handles associated with this
-    /// stream, not just this one handle.
-    pub fn close_read(&mut self) -> IoResult<()> {
-        self.inner.close_read()
-    }
-
-    /// Closes the writing half of this connection.
-    ///
-    /// This method will close the writing portion of this connection, causing
-    /// all future writes to immediately return with an error.
-    ///
-    /// Note that this method affects all cloned handles associated with this
-    /// stream, not just this one handle.
-    pub fn close_write(&mut self) -> IoResult<()> {
-        self.inner.close_write()
-    }
-
     /// Sets a timeout, in milliseconds, for blocking operations on this stream.
     ///
     /// This function will set a timeout for all blocking operations (including
@@ -189,6 +156,48 @@ impl TcpStream {
     pub fn set_timeout(&mut self, timeout_ms: Option<u64>) {
         self.inner.set_timeout(timeout_ms)
     }
+}
+
+impl<W> TcpStream<Readable,W> {
+    /// Closes the reading half of this connection.
+    ///
+    /// This method will close the reading portion of this connection, causing
+    /// all pending and future reads to immediately return with an error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #![allow(unused_must_use)]
+    /// use std::io::timer;
+    /// use std::io::tcp_connect;
+    /// use std::time::Duration;
+    ///
+    /// let mut stream = tcp_connect("127.0.0.1:34254").unwrap();
+    /// let stream2 = stream.clone();
+    ///
+    /// spawn(proc() {
+    ///     // close this stream after one second
+    ///     timer::sleep(Duration::seconds(1));
+    ///     let mut stream = stream2;
+    ///     stream.close_read();
+    /// });
+    ///
+    /// // wait for some data, will get canceled after one second
+    /// let mut buf = [0];
+    /// stream.read(&mut buf);
+    /// ```
+    ///
+    /// Note that this method affects all cloned handles associated with this
+    /// stream, not just this one handle.
+    pub fn close_read(mut self) -> IoResult<TcpStream<(),W>> {
+        try!(self.inner.close_read());
+        Ok(self.forget_readability())
+    }
+
+    /// Consumes the reading abilities of the TcpStream.
+    pub fn forget_readability(self) -> TcpStream<(),W> {
+        TcpStream { inner: self.inner }
+    }
 
     /// Sets the timeout for read operations on this stream.
     ///
@@ -205,6 +214,25 @@ impl TcpStream {
     #[experimental = "the timeout argument may change in type and value"]
     pub fn set_read_timeout(&mut self, timeout_ms: Option<u64>) {
         self.inner.set_read_timeout(timeout_ms)
+    }
+}
+
+impl<R> TcpStream<R,Writable> {
+    /// Closes the writing half of this connection.
+    ///
+    /// This method will close the writing portion of this connection, causing
+    /// all future writes to immediately return with an error.
+    ///
+    /// Note that this method affects all cloned handles associated with this
+    /// stream, not just this one handle.
+    pub fn close_write(mut self) -> IoResult<TcpStream<R,()>> {
+        try!(self.inner.close_write());
+        Ok(self.forget_writability())
+    }
+
+    /// Consumes the writing abilities of this TcpStream.
+    pub fn forget_writability(self) -> TcpStream<R,()> {
+        TcpStream { inner: self.inner }
     }
 
     /// Sets the timeout for write operations on this stream.
@@ -235,7 +263,7 @@ impl TcpStream {
     }
 }
 
-impl Clone for TcpStream {
+impl<R,W> Clone for TcpStream<R,W> {
     /// Creates a new handle to this TCP stream, allowing for simultaneous reads
     /// and writes of this connection.
     ///
@@ -244,24 +272,24 @@ impl Clone for TcpStream {
     /// stream, but two concurrent reads will not receive the same data.
     /// Instead, the first read will receive the first packet received, and the
     /// second read will receive the second packet.
-    fn clone(&self) -> TcpStream {
+    fn clone(&self) -> TcpStream<R,W> {
         TcpStream { inner: self.inner.clone() }
     }
 }
 
-impl Reader for TcpStream {
+impl<W> Reader for TcpStream<Readable,W> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
         self.inner.read(buf)
     }
 }
 
-impl Writer for TcpStream {
+impl<R> Writer for TcpStream<R,Writable> {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         self.inner.write(buf)
     }
 }
 
-impl sys_common::AsInner<TcpStreamImp> for TcpStream {
+impl<R,W> sys_common::AsInner<TcpStreamImp> for TcpStream<R,W> {
     fn as_inner(&self) -> &TcpStreamImp {
         &self.inner
     }
@@ -276,7 +304,7 @@ impl sys_common::AsInner<TcpStreamImp> for TcpStream {
 /// # fn main() { }
 /// # fn foo() {
 /// # #![allow(dead_code)]
-/// use std::io::{TcpListener, TcpStream};
+/// use std::io::TcpListener;
 /// use std::io::{Acceptor, Listener};
 ///
 /// let listener = TcpListener::bind("127.0.0.1:80");
@@ -284,7 +312,7 @@ impl sys_common::AsInner<TcpStreamImp> for TcpStream {
 /// // bind the listener to the specified address
 /// let mut acceptor = listener.listen();
 ///
-/// fn handle_client(mut stream: TcpStream) {
+/// fn handle_client(mut stream: TcpDuplex) {
 ///     // ...
 /// # &mut stream; // silence unused mutability/variable warning
 /// }
@@ -330,7 +358,7 @@ impl TcpListener {
     }
 }
 
-impl Listener<TcpStream, TcpAcceptor> for TcpListener {
+impl Listener<TcpDuplex, TcpAcceptor> for TcpListener {
     fn listen(self) -> IoResult<TcpAcceptor> {
         self.inner.listen(128).map(|a| TcpAcceptor { inner: a })
     }
@@ -444,9 +472,9 @@ impl TcpAcceptor {
     }
 }
 
-impl Acceptor<TcpStream> for TcpAcceptor {
-    fn accept(&mut self) -> IoResult<TcpStream> {
-        self.inner.accept().map(TcpStream::new)
+impl Acceptor<TcpDuplex> for TcpAcceptor {
+    fn accept(&mut self) -> IoResult<TcpDuplex> {
+        self.inner.accept().map(TcpStream::<Readable,Writable>::new)
     }
 }
 
@@ -496,7 +524,7 @@ mod test {
 
     #[test]
     fn connect_error() {
-        match TcpStream::connect("0.0.0.0:1") {
+        match tcp_connect("0.0.0.0:1") {
             Ok(..) => panic!(),
             Err(e) => assert_eq!(e.kind, ConnectionRefused),
         }
@@ -509,7 +537,7 @@ mod test {
         let mut acceptor = listener.listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(("localhost", socket_addr.port));
+            let mut stream = tcp_connect(("localhost", socket_addr.port));
             stream.write(&[144]).unwrap();
         });
 
@@ -525,7 +553,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(("localhost", addr.port));
+            let mut stream = tcp_connect(("localhost", addr.port));
             stream.write(&[64]).unwrap();
         });
 
@@ -541,7 +569,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(("127.0.0.1", addr.port));
+            let mut stream = tcp_connect(("127.0.0.1", addr.port));
             stream.write(&[44]).unwrap();
         });
 
@@ -557,7 +585,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(("::1", addr.port));
+            let mut stream = tcp_connect(("::1", addr.port));
             stream.write(&[66]).unwrap();
         });
 
@@ -573,7 +601,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(addr);
+            let mut stream = tcp_connect(addr);
             stream.write(&[99]).unwrap();
         });
 
@@ -589,7 +617,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut stream = TcpStream::connect(addr);
+            let mut stream = tcp_connect(addr);
             stream.write(&[99]).unwrap();
         });
 
@@ -605,7 +633,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let _stream = TcpStream::connect(addr);
+            let _stream = tcp_connect(addr);
             // Close
         });
 
@@ -621,7 +649,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let _stream = TcpStream::connect(addr);
+            let _stream = tcp_connect(addr);
             // Close
         });
 
@@ -637,7 +665,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let _stream = TcpStream::connect(addr);
+            let _stream = tcp_connect(addr);
             // Close
         });
 
@@ -661,7 +689,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let _stream = TcpStream::connect(addr);
+            let _stream = tcp_connect(addr);
             // Close
         });
 
@@ -686,7 +714,7 @@ mod test {
 
         let (tx, rx) = channel();
         spawn(proc() {
-            drop(TcpStream::connect(addr));
+            drop(tcp_connect(addr));
             tx.send(());
         });
 
@@ -711,7 +739,7 @@ mod test {
 
         let (tx, rx) = channel();
         spawn(proc() {
-            drop(TcpStream::connect(addr));
+            drop(tcp_connect(addr));
             tx.send(());
         });
 
@@ -737,7 +765,7 @@ mod test {
 
         spawn(proc() {
             for _ in range(0, max) {
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 stream.write(&[99]).unwrap();
             }
         });
@@ -757,7 +785,7 @@ mod test {
 
         spawn(proc() {
             for _ in range(0, max) {
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 stream.write(&[99]).unwrap();
             }
         });
@@ -796,7 +824,7 @@ mod test {
 
             spawn(proc() {
                 debug!("connecting");
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 // Connect again before writing
                 connect(i + 1, addr);
                 debug!("writing");
@@ -832,7 +860,7 @@ mod test {
 
             spawn(proc() {
                 debug!("connecting");
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 // Connect again before writing
                 connect(i + 1, addr);
                 debug!("writing");
@@ -868,7 +896,7 @@ mod test {
 
             spawn(proc() {
                 debug!("connecting");
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 // Connect again before writing
                 connect(i + 1, addr);
                 debug!("writing");
@@ -904,7 +932,7 @@ mod test {
 
             spawn(proc() {
                 debug!("connecting");
-                let mut stream = TcpStream::connect(addr);
+                let mut stream = tcp_connect(addr);
                 // Connect again before writing
                 connect(i + 1, addr);
                 debug!("writing");
@@ -930,7 +958,7 @@ mod test {
             acceptor.accept().unwrap();
         });
 
-        let stream = TcpStream::connect(addr);
+        let stream = tcp_connect(addr);
 
         assert!(stream.is_ok());
         let mut stream = stream.unwrap();
@@ -971,7 +999,7 @@ mod test {
         });
 
         rx.recv();
-        let mut c = TcpStream::connect(addr).unwrap();
+        let mut c = tcp_connect(addr).unwrap();
         let mut b = [0, ..10];
         assert_eq!(c.read(&mut b), Ok(1));
         c.write(&[1]).unwrap();
@@ -999,7 +1027,7 @@ mod test {
 
         spawn(proc() {
             rx.recv();
-            let _stream = TcpStream::connect(addr).unwrap();
+            let _stream = tcp_connect(addr).unwrap();
             // Close
             rx.recv();
         });
@@ -1023,7 +1051,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut s = TcpStream::connect(addr);
+            let mut s = tcp_connect(addr);
             let mut buf = [0, 0];
             assert_eq!(s.read(&mut buf), Ok(1));
             assert_eq!(buf[0], 1);
@@ -1055,7 +1083,7 @@ mod test {
         let tx2 = tx1.clone();
 
         spawn(proc() {
-            let mut s = TcpStream::connect(addr);
+            let mut s = tcp_connect(addr);
             s.write(&[1]).unwrap();
             rx.recv();
             s.write(&[2]).unwrap();
@@ -1086,7 +1114,7 @@ mod test {
         let mut acceptor = TcpListener::bind(addr).listen();
 
         spawn(proc() {
-            let mut s = TcpStream::connect(addr);
+            let mut s = tcp_connect(addr);
             let mut buf = [0, 1];
             s.read(&mut buf).unwrap();
             s.read(&mut buf).unwrap();
@@ -1117,7 +1145,7 @@ mod test {
             c.write(&[1]).unwrap();
         });
 
-        let mut s = TcpStream::connect(addr).unwrap();
+        let mut s = tcp_connect(addr).unwrap();
         assert!(s.inner.close_write().is_ok());
         assert!(s.write(&[1]).is_err());
         assert_eq!(s.read_to_end(), Ok(vec!(1)));
@@ -1145,7 +1173,7 @@ mod test {
         if !cfg!(target_os = "freebsd") {
             let (tx, rx) = channel();
             spawn(proc() {
-                tx.send(TcpStream::connect(addr).unwrap());
+                tx.send(tcp_connect(addr).unwrap());
             });
             let _l = rx.recv();
             for i in range(0i, 1001) {
@@ -1162,7 +1190,7 @@ mod test {
         // Unset the timeout and make sure that this always blocks.
         a.set_timeout(None);
         spawn(proc() {
-            drop(TcpStream::connect(addr).unwrap());
+            drop(tcp_connect(addr).unwrap());
         });
         a.accept().unwrap();
     }
@@ -1179,29 +1207,22 @@ mod test {
         });
 
         let mut b = [0];
-        let mut s = TcpStream::connect(addr).unwrap();
+        let s : TcpDuplex = tcp_connect(addr).unwrap();
         let mut s2 = s.clone();
 
         // closing should prevent reads/writes
-        s.close_write().unwrap();
-        assert!(s.write(&[0]).is_err());
-        s.close_read().unwrap();
-        assert!(s.read(&mut b).is_err());
+        let s : TcpReader = s.close_write().unwrap();
+        let s = s.close_read().unwrap();
 
         // closing should affect previous handles
         assert!(s2.write(&[0]).is_err());
         assert!(s2.read(&mut b).is_err());
 
         // closing should affect new handles
-        let mut s3 = s.clone();
-        assert!(s3.write(&[0]).is_err());
-        assert!(s3.read(&mut b).is_err());
+        let _ = s.clone();
 
         // make sure these don't die
-        let _ = s2.close_read();
-        let _ = s2.close_write();
-        let _ = s3.close_read();
-        let _ = s3.close_write();
+        let _ = s2.close_read().unwrap().close_write().unwrap();
     }
 
     #[test]
@@ -1215,7 +1236,7 @@ mod test {
             let _ = rx.recv_opt();
         });
 
-        let mut s = TcpStream::connect(addr).unwrap();
+        let s = tcp_connect(addr).unwrap();
         let s2 = s.clone();
         let (tx, rx) = channel();
         spawn(proc() {
@@ -1236,7 +1257,7 @@ mod test {
         let mut a = TcpListener::bind(addr).listen().unwrap();
         let (tx, rx) = channel::<()>();
         spawn(proc() {
-            let mut s = TcpStream::connect(addr).unwrap();
+            let mut s = tcp_connect(addr).unwrap();
             rx.recv();
             assert!(s.write(&[0]).is_ok());
             let _ = rx.recv_opt();
@@ -1269,7 +1290,7 @@ mod test {
         let mut a = TcpListener::bind(addr).listen().unwrap();
         let (tx, rx) = channel::<()>();
         spawn(proc() {
-            let mut s = TcpStream::connect(addr).unwrap();
+            let mut s = tcp_connect(addr).unwrap();
             rx.recv();
             let mut amt = 0;
             while amt < 100 * 128 * 1024 {
@@ -1298,7 +1319,7 @@ mod test {
         let mut a = TcpListener::bind(addr).listen().unwrap();
         let (tx, rx) = channel::<()>();
         spawn(proc() {
-            let mut s = TcpStream::connect(addr).unwrap();
+            let mut s = tcp_connect(addr).unwrap();
             rx.recv();
             assert!(s.write(&[0]).is_ok());
             let _ = rx.recv_opt();
@@ -1326,7 +1347,7 @@ mod test {
         let mut a = TcpListener::bind(addr).listen().unwrap();
         let (tx, rx) = channel::<()>();
         spawn(proc() {
-            let mut s = TcpStream::connect(addr).unwrap();
+            let mut s = tcp_connect(addr).unwrap();
             rx.recv();
             assert_eq!(s.write(&[0]), Ok(()));
             let _ = rx.recv_opt();
@@ -1359,7 +1380,7 @@ mod test {
         let (txdone, rxdone) = channel();
         let txdone2 = txdone.clone();
         spawn(proc() {
-            let mut tcp = TcpStream::connect(addr).unwrap();
+            let mut tcp = tcp_connect(addr).unwrap();
             rx.recv();
             tcp.write_u8(0).unwrap();
             txdone2.send(());
@@ -1396,10 +1417,10 @@ mod test {
         let mut a2 = a.clone();
 
         spawn(proc() {
-            let _ = TcpStream::connect(addr);
+            let _ = tcp_connect(addr);
         });
         spawn(proc() {
-            let _ = TcpStream::connect(addr);
+            let _ = tcp_connect(addr);
         });
 
         assert!(a.accept().is_ok());
@@ -1420,10 +1441,10 @@ mod test {
         spawn(proc() { let mut a = a2; tx2.send(a.accept()) });
 
         spawn(proc() {
-            let _ = TcpStream::connect(addr);
+            let _ = tcp_connect(addr);
         });
         spawn(proc() {
-            let _ = TcpStream::connect(addr);
+            let _ = tcp_connect(addr);
         });
 
         assert!(rx.recv().is_ok());

@@ -85,13 +85,13 @@
 //!
 //!     ```rust
 //!     # #![allow(unused_must_use)]
-//!     use std::io::TcpStream;
+//!     use std::io::tcp_connect;
 //!
 //!     # // connection doesn't fail if a server is running on 8080
 //!     # // locally, we still want to be type checking this code, so lets
 //!     # // just stop it running (#11576)
 //!     # if false {
-//!     let mut socket = TcpStream::connect("127.0.0.1:8080").unwrap();
+//!     let mut socket = tcp_connect("127.0.0.1:8080").unwrap();
 //!     socket.write(b"GET / HTTP/1.0\n\n");
 //!     let response = socket.read_to_end();
 //!     # }
@@ -103,7 +103,7 @@
 //!     # fn main() { }
 //!     # fn foo() {
 //!     # #![allow(dead_code)]
-//!     use std::io::{TcpListener, TcpStream};
+//!     use std::io::{TcpListener, TcpDuplex};
 //!     use std::io::{Acceptor, Listener};
 //!
 //!     let listener = TcpListener::bind("127.0.0.1:80");
@@ -111,7 +111,7 @@
 //!     // bind the listener to the specified address
 //!     let mut acceptor = listener.listen();
 //!
-//!     fn handle_client(mut stream: TcpStream) {
+//!     fn handle_client(mut stream: TcpDuplex) {
 //!         // ...
 //!     # &mut stream; // silence unused mutability/variable warning
 //!     }
@@ -257,7 +257,11 @@ pub use self::fs::File;
 pub use self::timer::Timer;
 pub use self::net::ip::IpAddr;
 pub use self::net::tcp::TcpListener;
-pub use self::net::tcp::TcpStream;
+pub use self::net::tcp::tcp_connect;
+pub use self::net::tcp::tcp_connect_timeout;
+pub use self::net::tcp::TcpDuplex;
+pub use self::net::tcp::TcpReader;
+pub use self::net::tcp::TcpWriter;
 pub use self::net::udp::UdpStream;
 pub use self::pipe::PipeStream;
 pub use self::process::{Process, Command};

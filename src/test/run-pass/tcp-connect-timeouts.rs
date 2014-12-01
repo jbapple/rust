@@ -43,7 +43,7 @@ fn eventual_timeout() {
 
     let mut v = Vec::new();
     for _ in range(0u, 10000) {
-        match TcpStream::connect_timeout(addr, Duration::milliseconds(100)) {
+        match tcp_connect_timeout(addr, Duration::milliseconds(100)) {
             Ok(e) => v.push(e),
             Err(ref e) if e.kind == io::TimedOut => return,
             Err(e) => panic!("other error: {}", e),
@@ -56,21 +56,21 @@ fn timeout_success() {
     let addr = next_test_ip4();
     let _l = TcpListener::bind(addr).unwrap().listen();
 
-    assert!(TcpStream::connect_timeout(addr, Duration::milliseconds(1000)).is_ok());
+    assert!(tcp_connect_timeout(addr, Duration::milliseconds(1000)).is_ok());
 }
 
 fn timeout_error() {
     let addr = next_test_ip4();
 
-    assert!(TcpStream::connect_timeout(addr, Duration::milliseconds(1000)).is_err());
+    assert!(tcp_connect_timeout(addr, Duration::milliseconds(1000)).is_err());
 }
 
 fn connect_timeout_zero() {
     let addr = next_test_ip4();
-    assert!(TcpStream::connect_timeout(addr, Duration::milliseconds(0)).is_err());
+    assert!(tcp_connect_timeout(addr, Duration::milliseconds(0)).is_err());
 }
 
 fn connect_timeout_negative() {
     let addr = next_test_ip4();
-    assert!(TcpStream::connect_timeout(addr, Duration::milliseconds(-1)).is_err());
+    assert!(tcp_connect_timeout(addr, Duration::milliseconds(-1)).is_err());
 }

@@ -17,7 +17,7 @@
 extern crate log;
 extern crate libc;
 
-use std::io::net::tcp::{TcpListener, TcpStream};
+use std::io::net::tcp::{TcpListener, tcp_connect};
 use std::io::{Acceptor, Listener};
 use std::task::TaskBuilder;
 use std::time::Duration;
@@ -54,7 +54,7 @@ fn main() {
     for _ in range(0u, 1000) {
         let tx = tx.clone();
         TaskBuilder::new().stack_size(64 * 1024).spawn(proc() {
-            match TcpStream::connect(addr) {
+            match tcp_connect(addr) {
                 Ok(stream) => {
                     let mut stream = stream;
                     stream.write(&[1]);

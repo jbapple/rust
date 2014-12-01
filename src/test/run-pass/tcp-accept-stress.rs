@@ -13,7 +13,7 @@
 //              quite quickly and it takes a few seconds for the sockets to get
 //              recycled.
 
-use std::io::{TcpListener, Listener, Acceptor, EndOfFile, TcpStream};
+use std::io::{TcpListener, Listener, Acceptor, EndOfFile, tcp_connect};
 use std::sync::{atomic, Arc};
 
 static N: uint = 8;
@@ -56,7 +56,7 @@ fn test() {
         let cli_tx = cli_tx.clone();
         spawn(proc() {
             for _ in range(0, M) {
-                let _s = TcpStream::connect(addr).unwrap();
+                let _s = tcp_connect(addr).unwrap();
             }
             cli_tx.send(());
         });

@@ -398,19 +398,19 @@ impl FromStr for SocketAddr {
 /// ```rust,no_run
 /// # #![allow(unused_must_use)]
 ///
-/// use std::io::{TcpStream, TcpListener};
+/// use std::io::{tcp_connect, TcpListener};
 /// use std::io::net::udp::UdpSocket;
 /// use std::io::net::ip::{Ipv4Addr, SocketAddr};
 ///
 /// fn main() {
 ///     // The following lines are equivalent modulo possible "localhost" name resolution
 ///     // differences
-///     let tcp_s = TcpStream::connect(SocketAddr { ip: Ipv4Addr(127, 0, 0, 1), port: 12345 });
-///     let tcp_s = TcpStream::connect((Ipv4Addr(127, 0, 0, 1), 12345u16));
-///     let tcp_s = TcpStream::connect(("127.0.0.1", 12345u16));
-///     let tcp_s = TcpStream::connect(("localhost", 12345u16));
-///     let tcp_s = TcpStream::connect("127.0.0.1:12345");
-///     let tcp_s = TcpStream::connect("localhost:12345");
+///     let tcp_s = tcp_connect(SocketAddr { ip: Ipv4Addr(127, 0, 0, 1), port: 12345 });
+///     let tcp_s = tcp_connect((Ipv4Addr(127, 0, 0, 1), 12345u16));
+///     let tcp_s = tcp_connect(("127.0.0.1", 12345u16));
+///     let tcp_s = tcp_connect(("localhost", 12345u16));
+///     let tcp_s = tcp_connect("127.0.0.1:12345");
+///     let tcp_s = tcp_connect("localhost:12345");
 ///
 ///     // TcpListener::bind(), UdpSocket::bind() and UdpSocket::send_to() behave similarly
 ///     let tcp_l = TcpListener::bind("localhost:12345");

@@ -75,7 +75,7 @@ impl AsRawFd for io::net::pipe::UnixAcceptor {
     }
 }
 
-impl AsRawFd for io::net::tcp::TcpStream {
+impl<R,W> AsRawFd for io::net::tcp::TcpStream<R,W> {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
