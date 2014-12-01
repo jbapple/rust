@@ -1226,6 +1226,20 @@ mod test {
     }
 
     #[test]
+    fn readable_generic() {
+        // This function can operate on both TcpDuplexes and TcpReaders
+        #[allow(dead_code)]
+        fn close_reader<T>(s:TcpStream<Readable,T>) {
+            s.close_read().unwrap();
+        }
+        #[allow(dead_code)]
+        fn close_both(s: TcpDuplex, s2: TcpReader) {
+            close_reader(s);
+            close_reader(s2);
+        }
+    }
+
+    #[test]
     fn close_read_wakes_up() {
         let addr = next_test_ip4();
         let a = TcpListener::bind(addr).listen().unwrap();
