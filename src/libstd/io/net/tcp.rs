@@ -304,7 +304,7 @@ impl<R,W> sys_common::AsInner<TcpStreamImp> for TcpStream<R,W> {
 /// # fn main() { }
 /// # fn foo() {
 /// # #![allow(dead_code)]
-/// use std::io::TcpListener;
+/// use std::io::{TcpListener, TcpDuplex};
 /// use std::io::{Acceptor, Listener};
 ///
 /// let listener = TcpListener::bind("127.0.0.1:80");
